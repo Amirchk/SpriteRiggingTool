@@ -7,13 +7,17 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using SpriteRigEditor.Core;
 using SpriteRigEditor.Rendering;
+using System.Windows.Media.Imaging;
 
 namespace SpriteRigEditor
 {
     public partial class MainWindow : Window
     {
-        Skeleton skeleton = new();
+		Line? previewLine = null;
+		Bone? selectedBone = null;
 
+        Skeleton skeleton = new();
+		BitmapSource sprite;
         Vector2? creatingBoneStart = null;
         Line previewLine = null;
 
@@ -35,18 +39,20 @@ namespace SpriteRigEditor
 
         void LoadSprite()
         {
-            var sprite = SpriteLoader.Load("Assets/character.png");
+            sprite = SpriteLoader.Load("Assets/character.png");
 
-            var image = new Image
-            {
-                Source = sprite,
-                Width = sprite.PixelWidth,
-                Height = sprite.PixelHeight
-            };
+			var image = new Image
+			{
+				Source = sprite,
+				Width = sprite.PixelWidth,
+				Height = sprite.PixelHeight
+			};
 
-            Canvas.SetLeft(image, 400);
-            Canvas.SetTop(image, 200);
-            EditorCanvas.Children.Add(image);
+			Canvas.SetLeft(image, 400);
+			Canvas.SetTop(image, 200);
+			EditorCanvas.Children.Add(image);
+
+			GenerateMesh(sprite.PixelWidth, sprite.PixelHeight);
         }
 
         // ---------------- INPUT ----------------
@@ -148,7 +154,7 @@ namespace SpriteRigEditor
 		{
 			foreach (var vertex in skeleton.Vertices)
 			{
-				float dist = Vector2.Distance(vertex.Position, mouse);
+				float dist = Vector2.Distance(vertex.BindPosition, mouse);
 				if (dist > brushRadius)
 					continue;
 
@@ -193,11 +199,12 @@ namespace SpriteRigEditor
 					Fill = new SolidColorBrush(Color.FromRgb(intensity, 0, 0))
 				};
 
-				Canvas.SetLeft(dot, v.Position.X - 3);
-				Canvas.SetTop(dot, v.Position.Y - 3);
+				Canvas.SetLeft(dot, v.DeformedPosition.X - 3);
+				Canvas.SetTop(dot, v.DeformedPosition.Y - 3);
 				EditorCanvas.Children.Add(dot);
 			}
 		}
+
 
 
 
@@ -218,6 +225,7 @@ namespace SpriteRigEditor
             bone.LocalRotation = worldAngle - parentRotation;
 
             UpdateBoneWorldTransform(bone);
+			DeformMesh();
         }
 
         // ---------------- BONE MATH ----------------
@@ -238,6 +246,36 @@ namespace SpriteRigEditor
             foreach (var child in bone.Children)
                 UpdateBoneWorldTransform(child);
         }
+		
+		void DeformMesh()
+		{
+			foreach (var v in skeleton.Vertices)
+			{
+				Vector2 final = Vector2.Zero;
+
+				foreach (var pair in v.Weights)
+				{
+					Bone bone = pair.Key;
+					float weight = pair.Value;
+
+					Matrix3x2 m = bone.GetWorldMatrix();
+
+					Vector2 local =
+						v.BindPosition -
+						(bone.Parent != null ? bone.Parent.WorldEnd : bone.WorldStart);
+
+					Vector2 transformed = Vector2.Transform(local, m);
+
+					final += transformed * weight;
+				}
+
+				if (v.Weights.Count == 0)
+					final = v.BindPosition;
+
+				v.DeformedPosition = final;
+			}
+		}
+		
 
         // ---------------- SELECTION ----------------
 
@@ -285,13 +323,16 @@ namespace SpriteRigEditor
 			{
 				for (int x = 0; x <= width; x += spacing)
 				{
+					Vector2 pos = new(400 + x, 200 + y);
+
 					skeleton.Vertices.Add(new Vertex
 					{
-						Position = new Vector2(400 + x, 200 + y)
+						BindPosition = pos,
+						DeformedPosition = pos
 					});
-        }
-    }
-}
+				}
+			}
+		}
 
 
         // ---------------- DRAWING ----------------
